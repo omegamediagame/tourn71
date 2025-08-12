@@ -82,7 +82,7 @@ for key in DPO_CONFIG:
     DPO_CONFIG[key]["label"] = key
     
 
-def get_config(param_nums: int) -> dict:
+def get_dpo_config(param_nums: int) -> dict:
     result = None
     if param_nums < 1_000_000_000:
         result = DPO_CONFIG["0_1_b"]
@@ -231,10 +231,12 @@ def get_training_json(train_info: dict) -> dict:
     print(f"param_nums: {param_nums}")
     print(f"param_nums_trainable: {param_nums_trainable}")
 
-    config = get_config(param_nums)
+    config = get_dpo_config(param_nums)
+    print(f"get_dpo_config: {config}")
 
-    if not param_nums_trainable:
-        config = get_learning_rate(config, param_nums_trainable)
+    # if param_nums_trainable:
+    #     config = get_learning_rate(config, param_nums_trainable)
+    #     print(f"get_learning_rate: {config}")
 
     run_config = {
         "epoch_num": 3,
@@ -260,7 +262,10 @@ def get_training_json(train_info: dict) -> dict:
     if total_batch_size < 64:
         run_config["gradient_accumulation_steps"] = min(4, int(64 / total_batch_size))
         
+    print(f"run_config: {run_config}")
+
     run_cmd = get_run_cmd(run_config, run_config["gpu_nums"])
+
     train_request = deepcopy(train_info)
     train_request["save_before_remaining_time"] = 3
     train_request["min_steps"] = 100
