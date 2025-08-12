@@ -180,12 +180,62 @@ def get_run_cmd(config: dict, gpu_nums: int):
     return template
 
 
+def get_learning_rate(config: dict, trainable_params: int):
+    """
+    Auto-calculate learning rate based on trainable parameter count 
+    and training type (instruct, dpo, grpo).
+    
+    Args:
+        trainable_params (int): Number of trainable parameters (e.g., LoRA params).
+        training_type (str): One of ['instruct', 'dpo', 'grpo'].
+    
+    Returns:
+        float: Suggested learning rate.
+    """
+
+    c = config['lr']
+    print(f"base lr {c}")
+
+    # Scale LR inversely with sqrt of params
+    lr = c / (trainable_params ** 0.5)
+    print(f"scale lr {lr}")
+
+    # Clamp to reasonable bounds for stability
+
+    lr = max(min(lr, 5e-4), 3e-5)
+
+    # if training_type.lower() == "instruct":
+    #     lr = max(min(lr, 1e-3), 5e-5)
+    # elif training_type.lower() == "dpo":
+    #     lr = max(min(lr, 5e-4), 3e-5)
+    # elif training_type.lower() == "grpo":
+    #     lr = max(min(lr, 2e-4), 1e-5)
+
+    config['lr'] = lr
+    print(f"custom lr {config['lr']}")
+
+    return config
+
+
 def get_training_json(train_info: dict) -> dict:
     model_name = train_info["model_name"]
     model_path = train_info["model_path"]
     model_architecture = get_model_architecture(model_path)
-    param_nums = get_model_num_params(model_name, model_path)
+
+    param_nums = train_info["all_params"]
+
+    if not param_nums:
+        param_nums = get_model_num_params(model_name, model_path)
+
+    param_nums_trainable = int(param_nums*0.003)
+    print(f"param_nums: {param_nums}")
+    print(f"param_nums_trainable: {param_nums_trainable}")
+
     config = get_config(param_nums)
+
+    if not param_nums_trainable:
+        config = get_learning_rate(config, param_nums_trainable)
+
     run_config = {
         "epoch_num": 3,
         "batch_size": config["batch_size"],

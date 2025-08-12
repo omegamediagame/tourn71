@@ -3,7 +3,7 @@ GRPO = "grpo"
 INSTRUCT = "instruct"
 import re
 from huggingface_hub import HfApi
-from transformers import AutoConfig
+from transformers import AutoTokenizer, AutoConfig, AutoModel
 import glob
 from safetensors.torch import load_file
 from pathlib import Path
@@ -101,27 +101,81 @@ def get_gpu_count():
     return torch.cuda.device_count()
 
 
-def get_model_num_params(model_id: str, model_path: str) -> int:
-    if model_id in MODEL_CONFIG:
+# def get_model_num_params(model_id: str, model_path: str) -> int:
+#     if model_id in MODEL_CONFIG:
+#         return MODEL_CONFIG[model_id]["model_size"]
+#     try:
+#         size = get_model_size_from_local_path(model_path)
+#         if size is not None:
+#             return size
+#         raise Exception(f"Cannot get model size from {model_path}")
+
+#     except Exception as e:
+#         print(f"Error getting model size from safetensors: {e}")
+#         try:
+#             model_size = re.search(r"(\d+)(?=[bB])", model_id)
+#             model_size = (
+#                 int(model_size.group(1)) * 1_000_000_000 if model_size else None
+#             )
+#             print(f"Model size from regex: {model_size}")
+#             return model_size
+#         except Exception as e:
+#             print(f"Error getting model size from regex: {e}")
+#             return None
+
+
+def get_model_num_params(model: str, model_path: str) -> int:
+    default_size = 5000000000
+
+    if model in MODEL_CONFIG:
         return MODEL_CONFIG[model_id]["model_size"]
+
     try:
-        size = get_model_size_from_local_path(model_path)
-        if size is not None:
-            return size
-        raise Exception(f"Cannot get model size from {model_path}")
+        print(f"Fetching config for {model}...")
+        model_config = AutoConfig.from_pretrained(model)
+
+        print("Building model architecture without downloading weights...")
+        model_params = AutoModel.from_config(model_config)
+
+        all_params = sum(p.numel() for p in model_params.parameters())
+        # trainable_params = sum(p.numel() for p in model_params.parameters() if p.requires_grad)
+        trainable_params = int(all_params*0.003)
+
+        print(f"loading tokenizer... {model}")
+        print(f"trainable params: {trainable_params} || all params: {all_params} || trainable%: {trainable_params/all_params}")
+
+        return all_params
 
     except Exception as e:
-        print(f"Error getting model size from safetensors: {e}")
+        print(f"Error getting model size from automodel: {e}")
+
         try:
-            model_size = re.search(r"(\d+)(?=[bB])", model_id)
-            model_size = (
-                int(model_size.group(1)) * 1_000_000_000 if model_size else None
-            )
-            print(f"Model size from regex: {model_size}")
-            return model_size
+            hf_api = HfApi()
+            model_info = hf_api.model_info(model_path)
+            size = model_info.safetensors.total
+            size_trainable = int(size*0.003)
+
+            print(f"save new model ===============================")
+            print(f"loading tokenizer... {model}")
+            print(f"trainable params: {size_trainable} || all params: {size} || trainable%: {size_trainable/size}")
+
+            return size
+
         except Exception as e:
-            print(f"Error getting model size from regex: {e}")
-            return None
+            print(f"Error getting model size from safetensors: {e}")
+
+            try:
+                import re
+                model_size = re.search(r"(\d+)(?=[bB])", model)
+                model_size = (
+                    int(model_size.group(1)) * 1_000_000_000 if model_size else None
+                )
+                print(f"Model size from regex: {model_size}")
+                return model_size
+
+            except Exception as e:
+                print(f"Error getting model size from regex: {e}")
+                return default_size
 
 
 def disable_flash_attention(architecture: str, model: str) -> str:

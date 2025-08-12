@@ -203,6 +203,30 @@ def main():
     end_time = end_time.strftime("%Y-%m-%d %H:%M:%S")
     print("end_time: ", end_time, flush=True)
 
+
+    trainable_params = 5000000000
+    all_params = 0
+
+    try:
+        model_param_path = os.path.join("./", "model_param.json")
+        with open(model_param_path, 'r') as f:
+            data_models = json.load(f)
+
+            for data in data_models:
+                if data['model_name'].lower() == original_model_name.lower():
+                    print(f"model: {data['model_name']}")
+
+                    trainable_params = int(data['trainable_params'])
+                    all_params = int(data['all_params'])
+                    trainable_percent = data['trainable_percent']
+                    print(f"trainable_params: {trainable_params}")
+                    print(f"all_params: {all_params}")
+                    print(f"trainable_percent: {trainable_percent}")
+
+    except Exception as e:
+        print(f"Error checking and logging base model size: {e}")
+
+
     ds_folder = "datasets"
     os.makedirs(ds_folder, exist_ok=True)
     request_path = os.path.join(ds_folder, f"training_request_{args.task_id}.json")
@@ -222,8 +246,10 @@ def main():
         "adjust_batch_size": True,
         "request_path": request_path,
         "max_data_size": args.max_data_size,
-        "max_steps": args.max_steps,
+        # "max_steps": args.max_steps,
+        "max_steps": 10,
         "wandb_log_dir": train_cst.WANDB_LOGS_DIR,
+        "all_params": all_params,
     }
 
     if args.task_type == TaskType.INSTRUCTTEXTTASK.value:
