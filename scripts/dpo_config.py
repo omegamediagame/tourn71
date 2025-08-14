@@ -129,6 +129,7 @@ def get_run_cmd(config: dict, gpu_nums: int):
         "use_liger",
         "optimizer",
         "disable_fa",
+        "max_steps",
     ]
     for key in required_keys:
         if key not in config:
@@ -159,6 +160,7 @@ def get_run_cmd(config: dict, gpu_nums: int):
     --learning_rate {learning_rate} \
     --weight_decay 0. \
     --warmup_steps 35 \
+    --max_steps {max_steps} \
     --lr_scheduler_type cosine_with_min_lr \
     --lr_scheduler_kwargs "{\\"min_lr_rate\\": {min_lr_rate}}" \
     --tf32 True \
@@ -267,7 +269,7 @@ def get_training_json(train_info: dict) -> dict:
     run_cmd = get_run_cmd(run_config, run_config["gpu_nums"])
 
     train_request = deepcopy(train_info)
-    train_request["save_before_remaining_time"] = 3
+    train_request["save_before_remaining_time"] = 5
     train_request["min_steps"] = 100
     train_request["adjust_batch_size"] = False
     train_request["periodic_save_steps"] = 500

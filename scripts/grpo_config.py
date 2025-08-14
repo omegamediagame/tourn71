@@ -319,14 +319,14 @@ def get_training_json(train_info: dict) -> dict:
         run_config["batch_size"] = int(run_config["batch_size"] / 1.5)
     
     train_request = deepcopy(train_info)
-    train_request["save_before_remaining_time"] = 3
+    train_request["save_before_remaining_time"] = 5
     train_request["min_steps"] = 100
     train_request["adjust_batch_size"] = False
     train_request["periodic_save_steps"] = 500
     
     
     if if_contain_slow_reward_function(train_info["dataset_type"]):
-        train_request["save_before_remaining_time"] = 12
+        train_request["save_before_remaining_time"] = 15
         if config["label"] == "0_1_b":
             run_config["batch_size"] = 8
         elif config["label"] == "1_2_b":

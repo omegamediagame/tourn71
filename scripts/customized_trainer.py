@@ -111,8 +111,8 @@ class CustomEvalSaveCallback(TrainerCallback):
             print(f"Only save the model at step: {state.global_step}, no evaluation", flush=True)
             current_step = state.global_step
             # Remove existing directory if it exists
-            if os.path.exists(self.submission_dir):
-                shutil.rmtree(self.submission_dir)
+            # if os.path.exists(self.submission_dir):
+            #     shutil.rmtree(self.submission_dir)
                 
             shutil.copytree(
                 os.path.join(self.output_dir, f"checkpoint-{current_step}"),
@@ -135,8 +135,8 @@ class CustomEvalSaveCallback(TrainerCallback):
         ):
             print(f"Copy the best checkpoint to the submission directory at step: {state.global_step}", flush=True)
             # Remove existing directory if it exists
-            if os.path.exists(self.submission_dir):
-                shutil.rmtree(self.submission_dir)
+            # if os.path.exists(self.submission_dir):
+            #     shutil.rmtree(self.submission_dir)
             best_eval_loss = self.best_checkpoint_info["loss"]
             shutil.copytree(
                 os.path.join(self.output_dir, f"checkpoint-{self.best_checkpoint_info['step']}"),

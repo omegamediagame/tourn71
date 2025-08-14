@@ -133,48 +133,6 @@ def patch_wandb_symlinks(base_dir:str):
                     pathlib.Path(full_path).touch()
 
 
-def patch_model_metadata(output_dir: str, base_model_id: str):
-    try:
-        adapter_config_path = os.path.join(output_dir, "adapter_config.json")
-
-        if os.path.exists(adapter_config_path):
-            with open(adapter_config_path, "r") as f:
-                config = json.load(f)
-
-            config["base_model_name_or_path"] = base_model_id
-
-            with open(adapter_config_path, "w") as f:
-                json.dump(config, f, indent=2)
-
-            print(f"Updated adapter_config.json with base_model: {base_model_id}", flush=True)
-        else:
-            print(" adapter_config.json not found", flush=True)
-
-        readme_path = os.path.join(output_dir, "README.md")
-
-        if os.path.exists(readme_path):
-            with open(readme_path, "r") as f:
-                lines = f.readlines()
-
-            new_lines = []
-            for line in lines:
-                if line.strip().startswith("base_model:"):
-                    new_lines.append(f"base_model: {base_model_id}\n")
-                else:
-                    new_lines.append(line)
-
-            with open(readme_path, "w") as f:
-                f.writelines(new_lines)
-
-            print(f"Updated README.md with base_model: {base_model_id}", flush=True)
-        else:
-            print("README.md not found", flush=True)
-
-    except Exception as e:
-        print(f"Error updating metadata: {e}", flush=True)
-        pass
-
-
 def parse_runtime_logs(log_path: str):
     import re
     import ast
@@ -216,29 +174,12 @@ def format_seconds(seconds):
 def main():
     start_time = time.time()
 
-    print("---STARTING TEXT TRAINING SCRIPT---", flush=True)
-    parser = argparse.ArgumentParser(description="Text Model Training Script")
+    print("---STARTING IMAGE TRAINING SCRIPT---", flush=True)
+    parser = argparse.ArgumentParser(description="Image Model Training Script")
     parser.add_argument("--task-id", required=True, help="Task ID")
     parser.add_argument("--model", required=True, help="Model name or path")
-    parser.add_argument(
-        "--dataset", required=True, help="Dataset path or HF dataset name"
-    )
-    parser.add_argument(
-        "--dataset-type", required=True, help="JSON string of dataset type config"
-    )
-    parser.add_argument(
-        "--task-type",
-        required=True,
-        choices=["InstructTextTask", "DpoTask", "GrpoTask"],
-        help="Type of task",
-    )
-    parser.add_argument(
-        "--file-format",
-        required=False,
-        choices=["csv", "json", "hf", "s3"],
-        help="File format",
-        default="s3",
-    )
+    parser.add_argument("--dataset-zip", required=True, help="Link to dataset zip file")
+    parser.add_argument("--model-type", required=True, choices=["sdxl", "flux"], help="Model type")
     parser.add_argument(
         "--hours-to-complete",
         type=float,
@@ -247,31 +188,17 @@ def main():
     )
     parser.add_argument("--expected-repo-name", help="Expected repository name")
     parser.add_argument(
-        "--max-data-size",
-        type=int,
-        help="Max data size to use for training",
-        default=-1,
-    )
-    parser.add_argument(
         "--max-steps", type=int, help="Max steps to use for training", default=-1
-    )
-    parser.add_argument(
-        "--retries", type=int, help="Number of retries", default=5
     )
 
     args = parser.parse_args()
     original_model_name = args.model
-    original_task_type = args.task_type
 
-    for directory in train_cst.AXOLOTL_DIRECTORIES.values():
-        os.makedirs(directory, exist_ok=True)
-    try:
-        dataset_type_dict = json.loads(args.dataset_type)
-    except Exception as e:
-        sys.exit(f"Error creating dataset type object: {e}")
+    os.makedirs(train_cst.IMAGE_CONTAINER_CONFIG_SAVE_PATH, exist_ok=True)
+    os.makedirs(train_cst.IMAGE_CONTAINER_IMAGES_PATH, exist_ok=True)
 
-    dataset_path = train_paths.get_text_dataset_path(args.task_id)
-    
+    model_path = train_paths.get_image_base_model_path(args.model)
+
     submission_dir = train_paths.get_checkpoints_output_path(
         args.task_id, args.expected_repo_name
     )
@@ -286,29 +213,6 @@ def main():
     )  # assume that 3 minutes to go this far
     end_time = end_time.strftime("%Y-%m-%d %H:%M:%S")
     print("end_time: ", end_time, flush=True)
-
-
-    trainable_params = 5000000000
-    all_params = 0
-
-    try:
-        model_param_path = os.path.join("./", "model_param.json")
-        with open(model_param_path, 'r') as f:
-            data_models = json.load(f)
-
-            for data in data_models:
-                if data['model_name'].lower() == original_model_name.lower():
-                    print(f"model: {data['model_name']}")
-
-                    trainable_params = int(data['trainable_params'])
-                    all_params = int(data['all_params'])
-                    trainable_percent = data['trainable_percent']
-                    print(f"trainable_params: {trainable_params}")
-                    print(f"all_params: {all_params}")
-                    print(f"trainable_percent: {trainable_percent}")
-
-    except Exception as e:
-        print(f"Error checking and logging base model size: {e}")
 
 
     # time_percent = 0.89
@@ -342,8 +246,8 @@ def main():
         "adjust_batch_size": True,
         "request_path": request_path,
         "max_data_size": args.max_data_size,
-        "max_steps": args.max_steps,
-        # "max_steps": 20,
+        # "max_steps": args.max_steps,
+        "max_steps": warmup_step,
         "wandb_log_dir": train_cst.WANDB_LOGS_DIR,
         "all_params": all_params,
     }
@@ -374,11 +278,9 @@ def main():
         tokenize_cmd, os.path.join(ds_folder, f"tokenize_{args.task_id}.log")
     )
 
+    train_success = False
     log_path = os.path.join(ds_folder, f"train_{args.task_id}.log")
-
-
-    # train_success = False
-    # i = 0
+    i = 0
 
     # while not train_success:
     #     i = i+1
@@ -388,7 +290,7 @@ def main():
     #         flush=True,
     #     )
     #     print(
-    #         f"************* Warmup attempt {i} for task {args.task_id} *************",
+    #         f"************* Warmup attempt {i} for task {args.task_id}*************",
     #         flush=True,
     #     )
     #     if i > 0:  # there was something wrong so we will reduce the batch_size
@@ -439,10 +341,7 @@ def main():
     #         "WANDB_NAME": f"{task_id}_{expected_repo_name}",
     #     }
         
-    #     print(f"train_cmd: {train_cmd}")
-
     #     run_cmd_with_log(train_cmd, log_path, env_vars=training_env_vars)
-
     #     # check if the training is successfully done; it is done, the output_dir should not be empty there is at least 2 files in the submission_dir
     #     if not os.path.exists(submission_dir) or len(os.listdir(submission_dir)) < 2:
     #         print(f"Warmup failed for task {args.task_id}", flush=True)
@@ -450,10 +349,6 @@ def main():
     #         print(f"Warmup successfully done for task {args.task_id}", flush=True)
     #         train_success = True
     #         # break
-
-    #     # print(f"Warmup successfully done for task {args.task_id}", flush=True)
-    #     # train_success = True
-    #     # # break
 
 
     # end_time = time.time()
@@ -475,16 +370,7 @@ def main():
     #     my_warmup_min = max(my_warmup)
     #     train_steps = int(my_warmup_min/step_runtime)
     #     print(f"TRAIN STEPS: {train_steps}")
-    #     train_cmd = replace_args_in_cmd(train_cmd, "max_steps", str(train_steps))
-    #     train_info["max_steps"] = train_steps
-
-    #     train_warmup = int(train_steps*0.20)
-    #     train_cmd = replace_args_in_cmd(train_cmd, "warmup_steps", str(train_warmup))
-    #     train_info["warmup_steps"] = train_warmup
-        
-    #     train_save = int(train_steps*0.20)
-    #     train_cmd = replace_args_in_cmd(train_cmd, "save_steps", str(train_save))
-    #     train_info["save_steps"] = train_save
+    #     train_cmd = replace_args_in_cmd(train_cmd, "max_steps", train_steps)
 
     #     print(f"FINAL TIME {format_seconds(my_warmup_min)}")
 
@@ -492,83 +378,76 @@ def main():
     #     print(f"Failed to get avg runtime: {e}")
 
 
-    train_success = False
-    i = 0
+    # train_success = False
+    # i = 0
 
-    while not train_success:
-        i = i+1
+    # while not train_success:
+    #     i = i+1
 
-        print(
-            f"TRAINING =======================================================================",
-            flush=True,
-        )
-        print(
-            f"************* Training attempt {i} for task {args.task_id} *************",
-            flush=True,
-        )
-        if i > 0:  # there was something wrong so we will reduce the batch_size
-            # first check if the training is OOM
-            if os.path.exists(log_path):
-                error_type = get_error_type(log_path)
-                if error_type == OOM_ERROR:
-                    current_batch_size = extract_value_from_cmd(
-                        train_cmd, "per_device_train_batch_size"
-                    )
-                    current_batch_size = int(current_batch_size)
-                    if current_batch_size > 1:
-                        new_batch_size = current_batch_size // 2
-                        print(
-                            f"Reducing batch size from {current_batch_size} to {new_batch_size}",
-                            flush=True,
-                        )
-                        train_cmd = replace_args_in_cmd(
-                            train_cmd,
-                            "per_device_train_batch_size",
-                            str(new_batch_size),
-                        )
-                        print(f"New train command: {train_cmd}", flush=True)
-                    else:
-                        print(f"batch size is 1, cannot reduce further", flush=True)
-                        if args.task_type == TaskType.GRPOTASK.value:
-                            # disable vllm
-                            train_cmd = replace_args_in_cmd(
-                                train_cmd, "use_vllm", "False"
-                            )
-                            print(f"disable VLLM {train_cmd}", flush=True)
-                elif error_type == VLLM_OOM_ERROR:
-                    if args.task_type == TaskType.GRPOTASK.value:
-                        print(f"VLLM OOM error, disable VLLM", flush=True)
-                        train_cmd = replace_args_in_cmd(train_cmd, "use_vllm", "False")
+    #     print(
+    #         f"TRAINING =======================================================================",
+    #         flush=True,
+    #     )
+    #     print(
+    #         f"************* Training attempt {i} for task {args.task_id}*************",
+    #         flush=True,
+    #     )
+    #     if i > 0:  # there was something wrong so we will reduce the batch_size
+    #         # first check if the training is OOM
+    #         if os.path.exists(log_path):
+    #             error_type = get_error_type(log_path)
+    #             if error_type == OOM_ERROR:
+    #                 current_batch_size = extract_value_from_cmd(
+    #                     train_cmd, "per_device_train_batch_size"
+    #                 )
+    #                 current_batch_size = int(current_batch_size)
+    #                 if current_batch_size > 1:
+    #                     new_batch_size = current_batch_size // 2
+    #                     print(
+    #                         f"Reducing batch size from {current_batch_size} to {new_batch_size}",
+    #                         flush=True,
+    #                     )
+    #                     train_cmd = replace_args_in_cmd(
+    #                         train_cmd,
+    #                         "per_device_train_batch_size",
+    #                         str(new_batch_size),
+    #                     )
+    #                     print(f"New train command: {train_cmd}", flush=True)
+    #                 else:
+    #                     print(f"batch size is 1, cannot reduce further", flush=True)
+    #                     if args.task_type == TaskType.GRPOTASK.value:
+    #                         # disable vllm
+    #                         train_cmd = replace_args_in_cmd(
+    #                             train_cmd, "use_vllm", "False"
+    #                         )
+    #                         print(f"disable VLLM {train_cmd}", flush=True)
+    #             elif error_type == VLLM_OOM_ERROR:
+    #                 if args.task_type == TaskType.GRPOTASK.value:
+    #                     print(f"VLLM OOM error, disable VLLM", flush=True)
+    #                     train_cmd = replace_args_in_cmd(train_cmd, "use_vllm", "False")
 
-        # empty the log file if it exists
-        if os.path.exists(log_path):
-            with open(log_path, "w") as f:
-                f.write("STARTING TRAINING")
+    #     # empty the log file if it exists
+    #     if os.path.exists(log_path):
+    #         with open(log_path, "w") as f:
+    #             f.write("STARTING TRAINING")
 
-        task_id = args.task_id
-        expected_repo_name = args.expected_repo_name
+    #     task_id = args.task_id
+    #     expected_repo_name = args.expected_repo_name
         
-        training_env_vars = {
-            "WANDB_MODE": "offline",
-            "WANDB_RUN_ID": f"{task_id}_{expected_repo_name}",
-            "WANDB_NAME": f"{task_id}_{expected_repo_name}",
-        }
+    #     training_env_vars = {
+    #         "WANDB_MODE": "offline",
+    #         "WANDB_RUN_ID": f"{task_id}_{expected_repo_name}",
+    #         "WANDB_NAME": f"{task_id}_{expected_repo_name}",
+    #     }
         
-        print(f"train_cmd: {train_cmd}")
-
-        run_cmd_with_log(train_cmd, log_path, env_vars=training_env_vars)
-
-        # check if the training is successfully done; it is done, the output_dir should not be empty there is at least 2 files in the submission_dir
-        if not os.path.exists(submission_dir) or len(os.listdir(submission_dir)) < 2:
-            print(f"Training failed for task {args.task_id}", flush=True)
-        else:
-            print(f"Training successfully done for task {args.task_id}", flush=True)
-            train_success = True
-            # break
-
-        # print(f"Training successfully done for task {args.task_id}", flush=True)
-        # train_success = True
-        # # break
+    #     run_cmd_with_log(train_cmd, log_path, env_vars=training_env_vars)
+    #     # check if the training is successfully done; it is done, the output_dir should not be empty there is at least 2 files in the submission_dir
+    #     if not os.path.exists(submission_dir) or len(os.listdir(submission_dir)) < 2:
+    #         print(f"Training failed for task {args.task_id}", flush=True)
+    #     else:
+    #         print(f"Training successfully done for task {args.task_id}", flush=True)
+    #         train_success = True
+    #         # break
 
 
     if not train_success:
@@ -578,9 +457,7 @@ def main():
         run_cmd_with_log(
             add_noise_cmd, os.path.join(ds_folder, f"add_noise_{args.task_id}.log")
         )
-
-    # patch_model_metadata(submission_dir, args.model)
-
+    
     patch_wandb_symlinks(train_cst.WANDB_LOGS_DIR)
 
 
