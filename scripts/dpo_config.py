@@ -275,7 +275,7 @@ def get_training_json(train_info: dict) -> dict:
     run_cmd = get_run_cmd(run_config, run_config["gpu_nums"])
 
     train_request = deepcopy(train_info)
-    train_request["save_before_remaining_time"] = 5
+    train_request["save_before_remaining_time"] = 10
     train_request["min_steps"] = 100
     train_request["adjust_batch_size"] = False
     train_request["periodic_save_steps"] = 500

@@ -94,6 +94,7 @@ def extract_value_from_cmd(cmd: str, arg_name: str):
 
 OOM_ERROR = "torch.OutOfMemoryError: CUDA out of memory"
 VLLM_OOM_ERROR = "ValueError: No available memory for the cache blocks"
+VAR_ONCE_ERROR = "RuntimeError: Expected to mark a variable ready only once"
 
 
 def get_error_type(log_path: str):
@@ -103,6 +104,8 @@ def get_error_type(log_path: str):
         return OOM_ERROR
     elif VLLM_OOM_ERROR in text:
         return VLLM_OOM_ERROR
+    elif VAR_ONCE_ERROR in text:
+        return VAR_ONCE_ERROR
     else:
         return None
 
@@ -539,6 +542,9 @@ def main():
                     if args.task_type == TaskType.GRPOTASK.value:
                         print(f"VLLM OOM error, disable VLLM", flush=True)
                         train_cmd = replace_args_in_cmd(train_cmd, "use_vllm", "False")
+                elif error_type == VAR_ONCE_ERROR:
+                    print(f"VAR_ONCE_ERROR", flush=True)
+                    train_cmd = replace_args_in_cmd(train_cmd, "gradient_checkpointing", "False")
 
         # empty the log file if it exists
         if os.path.exists(log_path):
