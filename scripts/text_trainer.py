@@ -95,6 +95,7 @@ def extract_value_from_cmd(cmd: str, arg_name: str):
 OOM_ERROR = "torch.OutOfMemoryError: CUDA out of memory"
 VLLM_OOM_ERROR = "ValueError: No available memory for the cache blocks"
 VAR_ONCE_ERROR = "RuntimeError: Expected to mark a variable ready only once"
+CACHING_ERROR = "Caching is incompatible with gradient"
 
 
 def get_error_type(log_path: str):
@@ -106,6 +107,8 @@ def get_error_type(log_path: str):
         return VLLM_OOM_ERROR
     elif VAR_ONCE_ERROR in text:
         return VAR_ONCE_ERROR
+    elif CACHING_ERROR in text:
+        return CACHING_ERROR
     else:
         return None
 
@@ -544,6 +547,9 @@ def main():
                         train_cmd = replace_args_in_cmd(train_cmd, "use_vllm", "False")
                 elif error_type == VAR_ONCE_ERROR:
                     print(f"VAR_ONCE_ERROR", flush=True)
+                    train_cmd = replace_args_in_cmd(train_cmd, "gradient_checkpointing", "False")
+                elif error_type == CACHING_ERROR:
+                    print(f"CACHING_ERROR", flush=True)
                     train_cmd = replace_args_in_cmd(train_cmd, "gradient_checkpointing", "False")
 
         # empty the log file if it exists
